@@ -1,0 +1,125 @@
+---
+title: "m8w4.rmd"
+author: "raymond"
+date: "June 1, 2017"
+output: html_document
+---
+
+## Prediction Assignment Writeup
+
+This project asks to analyze data by personal activity devices.
+We first load the data
+
+```{r load, cache=TRUE}
+training <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"))
+testing <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
+
+```
+
+Now, we load the necessary packages, set the seed (for it to be reproducible) and a look at the data
+```{r look, echo=FALSE}
+suppressMessages(library(kernlab)); 
+suppressMessages(library(caret)); 
+suppressMessages(library(rpart)); 
+suppressMessages(library(gbm));
+suppressMessages(library(rattle));
+suppressMessages(library(randomForest))
+str(training)
+set.seed(2)
+```
+
+### Cleaning the data
+
+Now, we commence the cleaning of data, which includes deleting off unrelated and useless columns (containing a lot of NAs). First off is the training dataset.
+```{r clean1,cache=TRUE}
+cols_na <- nearZeroVar(training) #cols with little/no variance
+training <- training[, -cols_na]
+
+keep_index <- !sapply(training, function(x) any(is.na(x))) #del cols containing NAs
+training <- training[, keep_index]
+keep_index <- sapply(colnames(training), function(x) !grepl("X|time|window",x))
+# ^ remove cols with labeling functions
+training <- training[, keep_index]
+dim(training)
+```
+
+Now, we do the same filtering to the testing dataset.
+```{r clean2}
+keep_index <- !sapply(testing, function(x) any(is.na(x)))
+testing <- testing[, keep_index]
+keep_index <- sapply(colnames(testing), function(x) !grepl("X|time|window",x))
+testing <- testing[, keep_index];
+#remove problem_id col
+idx1 <- which(colnames(testing)=="problem_id")
+testing <- testing[,-idx1]
+dim(testing)
+```
+
+### Machine Learning
+
+Now, we splice the training dataset so we have a 'train' and 'test' data from the training dataset
+```{r splice}
+index_train <- createDataPartition(training$classe, p = 0.7, list=FALSE)
+training1 <- training[index_train, ]
+testing1 <- training[-index_train, ]
+```
+
+Side note:-
+```{r control}
+control <- trainControl(method = "cv", number = 5)
+```
+We set the number of cross validation to 5 instead of the default 10 to save computation time. Also my computer ran out of memory with the default 10.
+
+#### LDA
+First, we try Linear Discriminant Analysis (LDA)
+```{r lda, cache=TRUE}
+modFit_lda <- train(classe ~., data=training1, method="lda")
+print(modFit_lda, digits = 4)
+predict_lda <- predict(modFit_lda, testing1)
+(conf_lda <- confusionMatrix(testing1$classe, predict_lda))
+(accuracy_lda <- conf_lda$overall[1])
+plot(conf_lda$table, col = conf_lda$byClass, main = paste("LDA Confusion Matrix: Accuracy =", round(conf_lda$overall['Accuracy'], 4)))
+```
+
+### Classification Tree
+Next, we try the Classification Tree method (rpart)
+```{r rpart, cache=TRUE}
+modFit_rpart <- train(classe ~ ., data = training1, method = "rpart", 
+                   trControl = control)
+print(modFit_rpart, digits = 4)
+predict_rpart <- predict(modFit_rpart, testing1)
+(conf_rpart <- confusionMatrix(testing1$classe, predict_rpart))
+plot(conf_rpart$table, col = conf_rpart$byClass, main = paste("Classification Tree Confusion Matrix: Accuracy =", round(conf_rpart$overall['Accuracy'], 4)))
+```
+
+### Random Forest
+
+Lastly, we try random forest
+
+```{r rf,cache=TRUE}
+modFit_rf <- train(classe ~., data = training1, method = "rf", trControl=control )
+print(modFit_rf, digits = 4)
+# predict outcomes using validation set
+predict_rf <- predict(modFit_rf, testing1)
+# Show prediction result
+(conf_rf <- confusionMatrix(testing1$classe, predict_rf))
+(accuracy_rf <- conf_rf$overall[1])
+```
+
+```{r rf2}
+plot(modFit_rf)
+```
+
+So, from the three models (LDA, Classification Tree, Random Forest)
+The accuracies are as follow
+
+LDA: 72.6%
+
+Classification Tree: 55%
+
+Random Forest: 99%
+
+As you can see, random forest so far has the best accuracy. The prediction of classe on testing dataset as follow
+```{r test}
+(predict(modFit_rf, testing))
+```
